@@ -1,0 +1,23 @@
+{
+  "directory":".",
+  "repos": [
+    {
+      "dirname": "core",
+      "origin": "git@bitbucket.org:xxx/one.git",
+      "sync": "https://github.com/ONLYOFFICE/core.git",
+      "branch": [
+        "master",
+        "release/v5.1.0"
+      ]
+    },
+    {
+      "dirname": "sdkjs",
+      "origin": "git@bitbucket.org:xxx/sdkjs.git",
+      "sync": "https://github.com/ONLYOFFICE/sdkjs.git",
+      "branch": [
+        "master",
+        "release/v5.1.0"
+      ]
+    }
+  ]
+}
