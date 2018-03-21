@@ -251,3 +251,5 @@ done
 ######------------------------#########
 check_require
 run
+#####
+./sync.sh -f abspath/to/your/sync.json
