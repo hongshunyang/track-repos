@@ -4,11 +4,19 @@
 #set -x
 #set -u
 
+#origin: your repos
+#sync: open source repos(was tracked)
+
 sync_json=$PWD/sync.json
 sync_directory=$PWD
 remote_origin=origin
 remote_sync=sync
 remote_nodes=($remote_origin $remote_sync)
+
+auto_commit_origin=1
+auto_pull_origin=1
+auto_merge_sync=1
+auto_push_origin=1
 
 function print_msg(){
 	printf %.s- {1..50}
@@ -167,19 +175,13 @@ function _pull_sync(){
 	cd $_full_path
 	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
 	if [ "$isin_git" == "true" ];then
-		checkSync_remoteOfRepo $_full_path $remote_origin $_origin_url $_branch
-		checkSync_remoteOfRepo $_full_path $remote_sync $_sync_url $_branch
+		_checkSync_remoteOfRepo $_full_path $remote_origin $_origin_url $_branch
+		_checkSync_remoteOfRepo $_full_path $remote_sync $_sync_url $_branch
 	else
 		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
 		cd $_full_path
 		git clone $_origin_url . --branch $_branch
-		[ "$(git rev-parse --verify --quiet $_branch)" == "" ] && git branch $_branch
-		git checkout  $_branch
 		git remote add $remote_sync $_sync_url
-		git pull $remote_sync $_branch
-		# track keywords:'sync-'
-		git branch --track sync-$_branch  $remote_sync/$_branch
-		git push -u $remote_origin $_branch
 	fi
 
 	cd $_full_path
@@ -199,12 +201,60 @@ function _pull_sync(){
 	git pull $remote_sync $_branch
 
 	git checkout $_branch
-	git pull $remote_origin $_branch
-	git merge sync-$_branch
-	git push $remote_origin $_branch
+
+	if [ "$auto_commit_origin" == "1" ];then
+		_git_commit $_full_path
+	fi
+
+	if [ "$auto_pull_origin" == "1" ];then
+		git pull $remote_origin $_branch
+	fi
+
+	if [ "$auto_merge_sync" == "1" ];then
+		git merge sync-$_branch
+	fi
+
+	if [ "$auto_push_origin" == "1" ];then
+		git push $remote_origin $_branch
+	fi
 }
 
-function checkSync_remoteOfRepo(){
+function _git_commit() {
+    ## must be current directory
+    local dir=$1
+
+    _yes_commit_mesg="Commited by sync.sh"
+
+    cd ${dir}
+    ##
+    git_conflicts=$(git ls-files -u | cut -f 2 | sort -u | wc -l | tr -d ' ')
+    if [[ "${git_conflicts}" != "0" ]];then
+	print_
+        echo "Please resolve conflict for:$dir"
+        git ls-files -u | cut -f 2 | sort -u
+        exit 1
+    fi
+
+    git_status=$(git status -s|wc -l)
+    if [[ "$git_status" != "0" ]];then
+        if [ -f "$dir/.gitmodules" ];then
+                tmpname=$(mktemp)
+                cat $dir/.gitmodules | awk  -F  "=" '$1 ~ /path/ {print $2}' | tr -d ' ' > $tmpname
+                while read line && [ -n "$line" ];
+                do
+                            echo "Submodule:$line"
+                            l=`echo $line | tr -d ' '`
+                    [ -d "$dir/$l" ] &&  _git_commit $dir/$l
+                done < $tmpname
+        fi
+        #must cd dir
+        cd $dir
+        git add .
+        git commit -m "${_yes_commit_mesg}"
+    fi
+}
+
+function _checkSync_remoteOfRepo(){
 	local _fullpath=$1
 	local _remote_name=$2
 	local _remote_url=$3
@@ -261,10 +311,22 @@ function run(){
 	pull_sync
 }
 
+function check_autoargs(){
+
+	if [ "$auto_push_origin" == "1" ];then
+		auto_merge_sync=1
+	fi
+	if [ "$auto_merge_sync" == "1" ];then
+		auto_pull_origin=1
+	fi
+	if [ "$auto_pull_origin" == "1" ];then
+		auto_commit_origin=1
+	fi
+}
 
 ######------------------------#########
 
-O=`getopt -o f: --long syn-json: -- "$@"` || exit 1
+O=`getopt -o f:c:l:m:p: --long syn-json:,auto-commit-origin,auto-pull-origin,auto-merge-sync,auto-push-origin -- "$@"` || exit 1
 eval set -- "$O"
 # extract options and their arguments into variables.
 while true ; do
@@ -274,11 +336,32 @@ while true ; do
                 "") shift 2 ;;
                 *) sync_json=$2 ; shift 2 ;;
             esac ;;
+        -c|--auto-commit-origin)
+            case "$2" in
+                "") shift 2 ;;
+                *) auto_commit_origin=$2 ; shift 2 ;;
+            esac ;;
+        -l|--auto-pull-origin)
+            case "$2" in
+                "") shift 2 ;;
+                *) auto_pull_origin=$2 ; shift 2 ;;
+            esac ;;
+        -m|--auto-merge-sync)
+            case "$2" in
+                "") shift 2 ;;
+                *) auto_merge_sync=$2 ; shift 2 ;;
+            esac ;;
+        -p|--auto-push-origin)
+            case "$2" in
+                "") shift 2 ;;
+                *) auto_push_origin=$2 ; shift 2 ;;
+            esac ;;
         --) shift ; break ;;
         *) print_msg "Internal error!" ; exit 1 ;;
     esac
 done
 
 ######------------------------#########
+check_autoargs
 check_require
 run
