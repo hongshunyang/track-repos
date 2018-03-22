@@ -5,31 +5,41 @@
 #set -u
 
 sync_json=$PWD/sync.json
-sync_directory=
+sync_directory=.
 remote_origin=origin
 remote_sync=sync
 remote_nodes=($remote_origin $remote_sync)
+
+function print_msg(){
+	printf %.s- {1..50}
+	echo
+	echo $1
+}
+function print_(){
+	printf %.s- {1..50}
+	echo
+}
 
 function check_require(){
 	##check getopt
 	local out=$(getopt -T)
 	if (( $? != 4 )) && [[ -n $out ]]; then
-		echo  "I require GNU getopt but it's not installed.  Aborting."
+		print_msg  "I require GNU getopt but it's not installed.  Aborting."
 		exit 1
 	fi
 	##check jq
-	command -v jq >/dev/null 2>&1 || { echo  "I require jq but it's not installed.  Aborting."; exit 1; }
+	command -v jq >/dev/null 2>&1 || { print_msg  "I require jq but it's not installed.  Aborting."; exit 1; }
 	##check git
-	command -v git >/dev/null 2>&1 || { echo  "I require git but it's not installed.  Aborting."; exit 1; }
+	command -v git >/dev/null 2>&1 || { print_msg  "I require git but it's not installed.  Aborting."; exit 1; }
 
 	##check dns/internet
 	case "$(curl -s --max-time 2 -I https://google.com | sed 's/^[^ ]*  *\([0-9]\).*/\1/; 1q')" in
   		[23])
 			;;
   		5)
-			echo  "The web proxy won't let us through"; exit 1 ;;
+			print_msg  "The web proxy won't let us through"; exit 1 ;;
   		*)
-			echo  "The network is down or very slow"; exit 1 ;;
+			print_msg  "The network is down or very slow"; exit 1 ;;
 	esac
 
 
@@ -41,20 +51,22 @@ function _check_remote(){
 
 	for g in $(jq -r ".repos | .[] | .$_remote" $sync_json)
 	do
+		print_ 30
+		echo "Checking $g"
 		exist=$(git ls-remote -h  $g -q)
-		[ -z $exist ] || { echo  "I found $g not exist. Aborting." exit 1;}
+		[ -z $exist ] || { print_msg "I found $g not exist. Aborting." exit 1;}
 		if [ "$_remote" == "$remote_sync" ];then
 			#check track remote branch
 			for b in $(jq -r ".repos | .[$i] | .branch | .[]" $sync_json)
 			do
+				echo "Checking $b"
 				exist_branch=$(git ls-remote -h $g | grep "refs/heads/$b")
-				[ ! -z "$exist_branch" ] || { echo  "I found the branch $b of $g not exist. Aborting." exit 1;}
+				[ ! -z "$exist_branch" ] || { print_msg  "I found the branch $b of $g not exist. Aborting." exit 1;}
 
 			done
 		fi
 		i=$(( $i + 1 ))
 	done
-
 
 }
 
@@ -79,7 +91,7 @@ function check_directory(){
 		*)
 			sync_directory=$directory ;;
 	esac
-	
+
         if [[ "$sync_directory" =~ ^\.\/.*  ]];then
 		## ./abc
 		sync_directory=$PWD/$(echo $sync_directory|tr -d "./")
@@ -89,12 +101,11 @@ function check_directory(){
 	else
 		echo
 	fi
-	## not support ./../abc
 	[ ! -d "$sync_directory" ] && mkdir -p $sync_directory
 	#check not in git repo
 	cd $sync_directory
-	isin_git=$(git rev-parse --is-inside-work-tree || echo "false")
-	[ "$isin_git" == "true" ] && { echo  "I cant sync repos into $_sync_dir(it's a git repo).  Aborting."; exit 1; }
+	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null)
+	[ "$isin_git" == "true" ] && { print_msg  "I cant sync repos into $_sync_dir(it's a git repo).  Aborting."; exit 1; }
 	#go next0
 }
 
@@ -112,11 +123,11 @@ function pull_sync(){
 
 	local i=0;
 	local j=0;
-
+	print_msg "Starting pull and sync"
 	repos_count=$(jq -r '.repos | length'  $sync_json)
 	repos_num=$(($repos_count-1))
 
-	[ "$repos_num" == "-1" ] && { echo  "repos of $sync_json is empty. Aborting";exit 1; }
+	[ "$repos_num" == "-1" ] && { print_msg  "repos of $sync_json is empty. Aborting";exit 1; }
 
 	for i in $(seq 0 $repos_num)
 	do
@@ -126,7 +137,6 @@ function pull_sync(){
 
 		branch_count=$(jq -r ".repos|.[$i]|.branch|length" $sync_json)
 		branch_num=$(($branch_count-1))
-
 		for j in $(seq 0 $branch_num)
 		do
 			_branch=$(jq -r ".repos|.[$i]|.branch|.[$j]" $sync_json)
@@ -134,6 +144,7 @@ function pull_sync(){
 		done
 
 	done
+	print_msg "Pull and sync end."
 
 }
 
@@ -147,18 +158,19 @@ function _pull_sync(){
 	local _full_path
 	local isin_git
 
-	[ -z $_dirname ] && { echo  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
-	_full_path=$sync_directory/$_dirname
+	print_
 
+	[ -z $_dirname ] && { print_msg  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
+	_full_path=$sync_directory/$_dirname
 
 	[ ! -d "$_full_path" ] && mkdir -p $_full_path
 	cd $_full_path
-	isin_git=$(git rev-parse --is-inside-work-tree || echo "false" )
+	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
 	if [ "$isin_git" == "true" ];then
 		checkSync_remoteOfRepo $_full_path $remote_origin $_origin_url $_branch
 		checkSync_remoteOfRepo $_full_path $remote_sync $_sync_url $_branch
 	else
-		[ $(ls -A $_full_path) ] && { echo  "$_full_path is not empty.  Aborting";exit 1; }
+		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
 		cd $_full_path
 		git clone $_origin_url . --branch $_branch
 		[ "$(git rev-parse --verify --quiet $_branch)" == "" ] && git branch $_branch
@@ -202,9 +214,9 @@ function checkSync_remoteOfRepo(){
 	local existed_remote
 	local existed_remote_num
 
-	[ -z $_fullpath ] && { echo  "_fullpath is empty"; exit 1; }
-	[ -z $_remote_name ] && { echo  "_remote_name is empty"; exit 1; }
-	[ -z $_remote_url ] && { echo  "_remote_url is empty"; exit 1; }
+	[ -z $_fullpath ] && { print_msg  "_fullpath is empty"; exit 1; }
+	[ -z $_remote_name ] && { print_msg  "_remote_name is empty"; exit 1; }
+	[ -z $_remote_url ] && { print_msg  "_remote_url is empty"; exit 1; }
 
 	cd $_fullpath
 
@@ -214,19 +226,19 @@ function checkSync_remoteOfRepo(){
 		if [ "$existed_remote" == "$_remote_name" ];then
 			existed_url=$(git remote get-url $_remote_name)
 			[ "$existed_url" != "$_remote_url" ] && exit "$_fullpath existing another repo.  Aborting."
-			#echo "go next1"
+			#print_msg "go next1"
 		else
 			# not test
-			echo "so many remotes with same string:$_remote_name,Please change directory of $sync_json"
+			print_msg "so many remotes with same string:$_remote_name,Please change directory of $sync_json"
 			exit 1
 		fi
 	else
 		# not test
 		if [ "$local_existed_remote_num" == "0" ];then
 			git remote add $_remote_name $_remote_url
-			#echo "go next2"
+			#print_msg "go next2"
 		else
-			echo "so many remotes with same string:$_remote_name,Please change directory of $sync_json"
+			print_msg "so many remotes with same string:$_remote_name,Please change directory of $sync_json"
 			exit 1
 		fi
 	fi
@@ -238,12 +250,11 @@ function guess_sync_json(){
 	else
 		sync_json=$PWD/$sync_json
 	fi
-	echo "guess fullpath:$sync_json"
-	[ -f "$sync_json" ] || { echo  "$sync_json not exist!  Aborting.";exit 1; }
+	#print_msg "guess fullpath:$sync_json"
+	[ -f "$sync_json" ] || { print_msg  "$sync_json not exist!  Aborting.";exit 1; }
 }
 
 function run(){
-
 	guess_sync_json
 	check_remotes
 	check_directory
@@ -264,7 +275,7 @@ while true ; do
                 *) sync_json=$2 ; shift 2 ;;
             esac ;;
         --) shift ; break ;;
-        *) echo "Internal error!" ; exit 1 ;;
+        *) print_msg "Internal error!" ; exit 1 ;;
     esac
 done
 
