@@ -79,7 +79,17 @@ function check_directory(){
 		*)
 			sync_directory=$directory ;;
 	esac
-
+	
+        if [[ "$sync_directory" =~ ^\.\/.*  ]];then
+		## ./abc
+		sync_directory=$PWD/$(echo $sync_directory|tr -d "./")
+	elif [[ "$sync_directory" =~ ^\.\.\/.*  ]];then
+		## ../abc
+		sync_directory=$(dirname $PWD)/$(echo $sync_directory|tr -d "../")
+	else
+		echo
+	fi
+	## not support ./../abc
 	[ ! -d "$sync_directory" ] && mkdir -p $sync_directory
 	#check not in git repo
 	cd $sync_directory
