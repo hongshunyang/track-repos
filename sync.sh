@@ -1,8 +1,8 @@
 #!/bin/bash
 
-set -e
-set -x
-set -u
+#set -e
+#set -x
+#set -u
 
 sync_json=$PWD/sync.json
 sync_directory=
@@ -85,7 +85,7 @@ function check_directory(){
 	cd $sync_directory
 	isin_git=$(git rev-parse --is-inside-work-tree || echo "false")
 	[ "$isin_git" == "true" ] && { echo  "I cant sync repos into $_sync_dir(it's a git repo).  Aborting."; exit 1; }
-	echo "go next0"
+	#go next0
 }
 
 function pull_sync(){
@@ -204,7 +204,7 @@ function checkSync_remoteOfRepo(){
 		if [ "$existed_remote" == "$_remote_name" ];then
 			existed_url=$(git remote get-url $_remote_name)
 			[ "$existed_url" != "$_remote_url" ] && exit "$_fullpath existing another repo.  Aborting."
-			echo "go next1"
+			#echo "go next1"
 		else
 			# not test
 			echo "so many remotes with same string:$_remote_name,Please change directory of $sync_json"
@@ -214,7 +214,7 @@ function checkSync_remoteOfRepo(){
 		# not test
 		if [ "$local_existed_remote_num" == "0" ];then
 			git remote add $_remote_name $_remote_url
-			echo "go next2"
+			#echo "go next2"
 		else
 			echo "so many remotes with same string:$_remote_name,Please change directory of $sync_json"
 			exit 1
