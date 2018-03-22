@@ -5,7 +5,7 @@
 #set -u
 
 sync_json=$PWD/sync.json
-sync_directory=.
+sync_directory=$PWD
 remote_origin=origin
 remote_sync=sync
 remote_nodes=($remote_origin $remote_sync)
