@@ -8,6 +8,9 @@
       "branch": [
         "master",
         "release/v5.1.0"
+      ],
+      "tag": [
+        "v1.0"
       ]
     },
     {
