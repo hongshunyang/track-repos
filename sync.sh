@@ -75,21 +75,30 @@ function check_require(){
 function _check_remote(){
 	local _remote=$1
 	local i=0
+	local b
+	local t
+	local g
 
 	for g in $(jq -r ".repos | .[] | .$_remote" $sync_json)
 	do
 		print_ 30
 		echo "Checking $g"
 		exist=$(git ls-remote -h  $g -q)
-		[ -z $exist ] || { print_msg "I found $g not exist. Aborting." exit 1;}
+		[ -z $exist ] || { print_msg "I found $g not exist. Aborting."; exit 1;}
 		if [ "$_remote" == "$remote_sync" ];then
 			#check track remote branch
 			for b in $(jq -r ".repos | .[$i] | .branch | .[]" $sync_json)
 			do
 				echo "Checking $b"
 				exist_branch=$(git ls-remote -h $g | grep "refs/heads/$b")
-				[ ! -z "$exist_branch" ] || { print_msg  "I found the branch $b of $g not exist. Aborting." exit 1;}
-
+				[ ! -z "$exist_branch" ] || { print_msg  "I found the branch $b of $g not exist. Aborting." ; exit 1;}
+			done
+			#check track remote tag
+			for t in $(jq -r ".repos | .[$i] | .tag | .[]" $sync_json)
+			do
+				echo "Checking $t"
+				exist_tag=$(git ls-remote $g -t $t | grep "refs/tags/$t")
+				[ ! -z "$exist_tag" ] || { print_msg  "I found the tag $t of $g not exist. Aborting." ; exit 1;}
 			done
 		fi
 		i=$(( $i + 1 ))
@@ -229,7 +238,9 @@ function _pull_sync_tag(){
 		git fetch $remote_sync +refs/tags/$_tag:refs/tags/$_tag
 	fi
 	#git push to remote_origin
-	git push $remote_origin $_tag
+	if [ "$(git rev-parse --verify --quiet $_tag)" != "" ];then
+		git push $remote_origin $_tag
+	fi
 	
 }
 
