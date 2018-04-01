@@ -7,11 +7,30 @@
 #origin: your repos
 #sync: open source repos(was tracked)
 
+#基于同步过来的 tag 创建新tag
+#1 同步sync的tag到origin：保持tag同名
+# done by sync.sh
+# ------------------------------------------------------------------
+#2 创建基于tag的开发分支develop-tag（如果remote sync的tag 是基于remote 的 master 创建，这里develop-tag 就是master）
+# git checkout -b develop-tag v0.9
+#3 合并从remote sync新fetch的tag 到develop-tag
+# git merge <v1.0>
+#4 打标签
+# git tag -a v1.0.P1 -m 'patched tag v1.0'
+#5 push 新标签到remote origin
+# git push origin v1.0.P1
+#6 push 本地分支develop-tag 到remote origin
+# git push origin develop-tag
+
+
 sync_json=$PWD/sync.json
 sync_directory=$PWD
 remote_origin=origin
 remote_sync=sync
 remote_nodes=($remote_origin $remote_sync)
+
+#dont change
+default_branch_when_branchIsEmpty=master
 
 auto_commit_origin=1
 auto_pull_origin=1
@@ -99,7 +118,7 @@ function check_directory(){
 		*)
 			sync_directory=$directory ;;
 	esac
-
+	
         if [[ "$sync_directory" =~ ^\.\/.*  ]];then
 		## ./abc
 		sync_directory=$PWD/$(echo $sync_directory|tr -d "./")
@@ -127,10 +146,12 @@ function pull_sync(){
 	local _origin_url
 	local _sync_url
 	local _branch
+	local _tag
 
 
 	local i=0;
 	local j=0;
+	local k=0;
 	print_msg "Starting pull and sync"
 	repos_count=$(jq -r '.repos | length'  $sync_json)
 	repos_num=$(($repos_count-1))
@@ -143,29 +164,46 @@ function pull_sync(){
 		_origin_url=$(jq -r ".repos|.[$i]|.origin" $sync_json)
 		_sync_url=$(jq -r ".repos|.[$i]|.sync" $sync_json)
 
+		##sync branch
 		branch_count=$(jq -r ".repos|.[$i]|.branch|length" $sync_json)
 		branch_num=$(($branch_count-1))
-		for j in $(seq 0 $branch_num)
-		do
-			_branch=$(jq -r ".repos|.[$i]|.branch|.[$j]" $sync_json)
-			_pull_sync $_dirname $_origin_url $_sync_url $_branch
-		done
+		if [ $branch_num -eq -1 ];then
+			#default master when branch is empty
+			_pull_sync_branch $_dirname $_origin_url $_sync_url $default_branch_when_branchIsEmpty
+		else
+			for j in $(seq 0 $branch_num)
+			do
+				_branch=$(jq -r ".repos|.[$i]|.branch|.[$j]" $sync_json)
+				_pull_sync_branch $_dirname $_origin_url $_sync_url $_branch
+			done
+		fi
+
+		##sync tag
+		tag_count=$(jq -r ".repos|.[$i]|.tag|length" $sync_json)
+		tag_num=$(($tag_count-1))
+		if [ $tag_num -ge 0 ];then
+			for k in $(seq 0 $tag_num)
+			do
+				_tag=$(jq -r ".repos|.[$i]|.tag|.[$k]" $sync_json)
+				_pull_sync_tag $_dirname $_origin_url $_sync_url $_tag
+			done
+		fi
 
 	done
 	print_msg "Pull and sync end."
 
 }
 
-function _pull_sync(){
+function _pull_sync_tag(){
 
 	local _dirname=$1
 	local _origin_url=$2
 	local _sync_url=$3
-	local _branch=$4
+	local _tag=$4
 
 	local _full_path
 	local isin_git
-
+	
 	print_
 
 	[ -z $_dirname ] && { print_msg  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
@@ -175,8 +213,47 @@ function _pull_sync(){
 	cd $_full_path
 	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
 	if [ "$isin_git" == "true" ];then
-		_checkSync_remoteOfRepo $_full_path $remote_origin $_origin_url $_branch
-		_checkSync_remoteOfRepo $_full_path $remote_sync $_sync_url $_branch
+		_verify_remote $_full_path $remote_origin $_origin_url 
+		_verify_remote $_full_path $remote_sync $_sync_url 
+	else
+		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
+		cd $_full_path
+		git clone $_origin_url .
+		git remote add $remote_sync $_sync_url
+	fi
+
+	cd $_full_path
+	#not have tag
+	if [ "$(git rev-parse --verify --quiet $_tag)" == "" ];then
+		#must fetch from remote_sync
+		git fetch $remote_sync +refs/tags/$_tag:refs/tags/$_tag
+	fi
+	#git push to remote_origin
+	git push $remote_origin $_tag
+	
+}
+
+function _pull_sync_branch(){
+
+	local _dirname=$1
+	local _origin_url=$2
+	local _sync_url=$3
+	local _branch=$4
+
+	local _full_path
+	local isin_git
+	
+	print_
+
+	[ -z $_dirname ] && { print_msg  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
+	_full_path=$sync_directory/$_dirname
+
+	[ ! -d "$_full_path" ] && mkdir -p $_full_path
+	cd $_full_path
+	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
+	if [ "$isin_git" == "true" ];then
+		_verify_remote $_full_path $remote_origin $_origin_url
+		_verify_remote $_full_path $remote_sync $_sync_url
 	else
 		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
 		cd $_full_path
@@ -201,16 +278,16 @@ function _pull_sync(){
 	git pull $remote_sync $_branch
 
 	git checkout $_branch
-
-	if [ "$auto_commit_origin" == "1" ];then
+	
+	if [ "$auto_commit_origin" == "1" ];then	
 		_git_commit $_full_path
 	fi
 
-	if [ "$auto_pull_origin" == "1" ];then
+	if [ "$auto_pull_origin" == "1" ];then	
 		git pull $remote_origin $_branch
 	fi
 
-	if [ "$auto_merge_sync" == "1" ];then
+	if [ "$auto_merge_sync" == "1" ];then	
 		git merge sync-$_branch
 	fi
 
@@ -254,11 +331,10 @@ function _git_commit() {
     fi
 }
 
-function _checkSync_remoteOfRepo(){
+function _verify_remote(){
 	local _fullpath=$1
 	local _remote_name=$2
 	local _remote_url=$3
-	local _branch=$4
 
 	local existed_url
 	local existed_remote
@@ -296,7 +372,7 @@ function _checkSync_remoteOfRepo(){
 
 function guess_sync_json(){
 	if [[ "$sync_json" =~ ^\/.*  ]];then
-		echo
+		echo 
 	else
 		sync_json=$PWD/$sync_json
 	fi
