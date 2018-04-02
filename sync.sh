@@ -78,28 +78,36 @@ function _check_remote(){
 	local b
 	local t
 	local g
+	local branch_count=0
+	local tag_count=0
 
 	for g in $(jq -r ".repos | .[] | .$_remote" $sync_json)
 	do
 		print_ 30
-		echo "Checking $g"
+		echo "Checking repos: $g"
 		exist=$(git ls-remote -h  $g -q)
 		[ -z $exist ] || { print_msg "I found $g not exist. Aborting."; exit 1;}
 		if [ "$_remote" == "$remote_sync" ];then
 			#check track remote branch
-			for b in $(jq -r ".repos | .[$i] | .branch | .[]" $sync_json)
-			do
-				echo "Checking $b"
-				exist_branch=$(git ls-remote -h $g | grep "refs/heads/$b")
-				[ ! -z "$exist_branch" ] || { print_msg  "I found the branch $b of $g not exist. Aborting." ; exit 1;}
-			done
+			branch_count=$(jq -r ".repos|.[$i]|.branch|length" $sync_json)
+			if [ $branch_count -ge 1 ];then
+				for b in $(jq -r ".repos | .[$i] | .branch | .[]" $sync_json)
+				do
+					echo "Checking branch: $b"
+					exist_branch=$(git ls-remote -h $g | grep "refs/heads/$b")
+					[ ! -z "$exist_branch" ] || { print_msg  "I found the branch $b of $g not exist. Aborting." ; exit 1;}
+				done
+			fi
 			#check track remote tag
-			for t in $(jq -r ".repos | .[$i] | .tag | .[]" $sync_json)
-			do
-				echo "Checking $t"
-				exist_tag=$(git ls-remote $g -t $t | grep "refs/tags/$t")
-				[ ! -z "$exist_tag" ] || { print_msg  "I found the tag $t of $g not exist. Aborting." ; exit 1;}
-			done
+			tag_count=$(jq -r ".repos|.[$i]|.tag|length" $sync_json)
+			if [ $tag_count -ge 1 ];then
+				for t in $(jq -r ".repos | .[$i] | .tag | .[]" $sync_json)
+				do
+					echo "Checking tag: $t"
+					exist_tag=$(git ls-remote $g -t $t | grep "refs/tags/$t")
+					[ ! -z "$exist_tag" ] || { print_msg  "I found the tag $t of $g not exist. Aborting." ; exit 1;}
+				done
+			fi
 		fi
 		i=$(( $i + 1 ))
 	done
@@ -150,6 +158,8 @@ function pull_sync(){
 	local repos_count=0
 	local branch_num=0
 	local branch_count=0
+	local tag_num=0
+	local tag_count=0
 
 	local _dirname
 	local _origin_url
@@ -190,7 +200,7 @@ function pull_sync(){
 		##sync tag
 		tag_count=$(jq -r ".repos|.[$i]|.tag|length" $sync_json)
 		tag_num=$(($tag_count-1))
-		if [ $tag_num -ge 0 ];then
+		if [ $tag_count -ge 1 ];then
 			for k in $(seq 0 $tag_num)
 			do
 				_tag=$(jq -r ".repos|.[$i]|.tag|.[$k]" $sync_json)
@@ -268,7 +278,7 @@ function _pull_sync_branch(){
 	else
 		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
 		cd $_full_path
-		git clone $_origin_url . --branch $_branch
+		git clone $_origin_url . 
 		git remote add $remote_sync $_sync_url
 	fi
 
