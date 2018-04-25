@@ -22,6 +22,12 @@
 #6 push 本地分支develop-tag 到remote origin
 # git push origin develop-tag
 
+#####  场景1: 5.2.x 分支与master分支有很多confliction 如下手动处理
+#1 git checkout -b 5.2.x v5.2.4
+#2 git pull sync 5.2.x
+#3 git branch --track sync-5.2.x sync/5.2.x
+#4 git push -u origin 5.2.x
+#####
 
 sync_json=$PWD/sync.json
 sync_directory=$PWD
