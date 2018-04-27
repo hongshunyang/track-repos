@@ -22,12 +22,7 @@
 #6 push 本地分支develop-tag 到remote origin
 # git push origin develop-tag
 
-#####  场景1: 5.2.x 分支与master分支有很多confliction 如下手动处理
-#1 git checkout -b 5.2.x v5.2.4
-#2 git pull sync 5.2.x
-#3 git branch --track sync-5.2.x sync/5.2.x
-#4 git push -u origin 5.2.x
-#####
+
 
 sync_json=$PWD/sync.json
 sync_directory=$PWD
@@ -141,7 +136,7 @@ function check_directory(){
 		*)
 			sync_directory=$directory ;;
 	esac
-	
+
         if [[ "$sync_directory" =~ ^\.\/.*  ]];then
 		## ./abc
 		sync_directory=$PWD/$(echo $sync_directory|tr -d "./")
@@ -228,7 +223,7 @@ function _pull_sync_tag(){
 
 	local _full_path
 	local isin_git
-	
+
 	print_
 
 	[ -z $_dirname ] && { print_msg  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
@@ -238,8 +233,8 @@ function _pull_sync_tag(){
 	cd $_full_path
 	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
 	if [ "$isin_git" == "true" ];then
-		_verify_remote $_full_path $remote_origin $_origin_url 
-		_verify_remote $_full_path $remote_sync $_sync_url 
+		_verify_remote $_full_path $remote_origin $_origin_url
+		_verify_remote $_full_path $remote_sync $_sync_url
 	else
 		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
 		cd $_full_path
@@ -257,7 +252,7 @@ function _pull_sync_tag(){
 	if [ "$(git rev-parse --verify --quiet $_tag)" != "" ];then
 		git push $remote_origin $_tag
 	fi
-	
+
 }
 
 function _pull_sync_branch(){
@@ -269,7 +264,7 @@ function _pull_sync_branch(){
 
 	local _full_path
 	local isin_git
-	
+
 	print_
 
 	[ -z $_dirname ] && { print_msg  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
@@ -284,20 +279,30 @@ function _pull_sync_branch(){
 	else
 		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
 		cd $_full_path
-		git clone $_origin_url . 
+		git clone $_origin_url .
 		git remote add $remote_sync $_sync_url
 	fi
 
 	cd $_full_path
 
+	##git fetch origin 'remote_branch':'local_branch_name'
+	##This will fetch the remote branch and create a new local branch (if not exists already) with name local_branch_name and track the remote one in it.
+
 	if [ "$(git rev-parse --verify --quiet $_branch)" == "" ];then
-		git checkout -b $_branch
-		git pull $remote_origin $_branch
+		#git checkout -b $_branch
+		#git pull $remote_origin $_branch
+
+		#fix conflict between branches
+		git fetch $remote_origin "$_branch":"$_branch"
+		git checkout $_branch
 	fi
 
 	if [ "$(git rev-parse --verify --quiet sync-$_branch)" == ""  ];then
-		git pull $remote_sync $_branch
-		git branch --track sync-$_branch  $remote_sync/$_branch
+		#git pull $remote_sync $_branch
+		#git branch --track sync-$_branch  $remote_sync/$_branch
+		git checkout $_branch
+		git fetch $remote_sync "$_branch":"sync-$_branch"
+		git merge sync-$_branch
 		git push -u $remote_origin $_branch
 	fi
 
@@ -305,16 +310,16 @@ function _pull_sync_branch(){
 	git pull $remote_sync $_branch
 
 	git checkout $_branch
-	
-	if [ "$auto_commit_origin" == "1" ];then	
+
+	if [ "$auto_commit_origin" == "1" ];then
 		_git_commit $_full_path
 	fi
 
-	if [ "$auto_pull_origin" == "1" ];then	
+	if [ "$auto_pull_origin" == "1" ];then
 		git pull $remote_origin $_branch
 	fi
 
-	if [ "$auto_merge_sync" == "1" ];then	
+	if [ "$auto_merge_sync" == "1" ];then
 		git merge sync-$_branch
 	fi
 
@@ -399,7 +404,7 @@ function _verify_remote(){
 
 function guess_sync_json(){
 	if [[ "$sync_json" =~ ^\/.*  ]];then
-		echo 
+		echo
 	else
 		sync_json=$PWD/$sync_json
 	fi
