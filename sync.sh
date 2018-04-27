@@ -300,9 +300,11 @@ function _pull_sync_branch(){
 	if [ "$(git rev-parse --verify --quiet sync-$_branch)" == ""  ];then
 		#git pull $remote_sync $_branch
 		#git branch --track sync-$_branch  $remote_sync/$_branch
+		
 		git checkout $_branch
 		git fetch $remote_sync "$_branch":"sync-$_branch"
 		git merge sync-$_branch
+		
 		git push -u $remote_origin $_branch
 	fi
 
