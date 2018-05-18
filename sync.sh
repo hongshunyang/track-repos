@@ -303,7 +303,7 @@ function _pull_sync_branch(){
 		
 		git checkout $_branch
 		git fetch $remote_sync "$_branch":"sync-$_branch"
-		git merge sync-$_branch
+		git merge --no-edit sync-$_branch
 		
 		git push -u $remote_origin $_branch
 	fi
@@ -322,7 +322,7 @@ function _pull_sync_branch(){
 	fi
 
 	if [ "$auto_merge_sync" == "1" ];then
-		git merge sync-$_branch
+		git merge --no-edit sync-$_branch
 	fi
 
 	if [ "$auto_push_origin" == "1" ];then
