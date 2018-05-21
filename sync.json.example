@@ -21,6 +21,28 @@
         "master",
         "release/v5.1.0"
       ]
+    },
+    {
+      "dirname": "nextcloud-xxx",
+      "origin": "git@bitbucket.org:xxx/nextcloud-xxx.git",
+      "sync": "",
+      "branch": [
+        "stable13"
+      ],
+      "gitmodules":[
+        {
+          "branch": "stable13",
+          "submodules":[
+            {
+              "submodule": "xxx",
+              "path": "apps/xxx",
+              "url": "git@bitbucket.org:xxx/nextcloud-xxx.git",
+              "branch": "master"
+            }
+          ]
+        }
+      ]
     }
+    
   ]
 }
