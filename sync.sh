@@ -100,7 +100,7 @@ function _check_remote(){
 				for b in $(jq -r ".repos | .[$i] | .branch | .[]" $sync_json)
 				do
 					echo "Checking branch: $b"
-					exist_branch=$(git ls-remote -h $g | grep "refs/heads/$b")
+					exist_branch=$(git ls-remote -h $g | grep -w "refs/heads/$b")
 					[ ! -z "$exist_branch" ] || { print_msg  "I found the branch $b of $g not exist. Aborting." ; exit 1;}
 				done
 			fi
@@ -110,7 +110,7 @@ function _check_remote(){
 				for t in $(jq -r ".repos | .[$i] | .tag | .[]" $sync_json)
 				do
 					echo "Checking tag: $t"
-					exist_tag=$(git ls-remote $g -t $t | grep "refs/tags/$t")
+					exist_tag=$(git ls-remote $g -t $t | grep -w "refs/tags/$t")
 					[ ! -z "$exist_tag" ] || { print_msg  "I found the tag $t of $g not exist. Aborting." ; exit 1;}
 				done
 			fi
@@ -167,16 +167,28 @@ function pull_sync(){
 	local tag_num=0
 	local tag_count=0
 
+    local gitmodules_num=0
+    local gitmodules_count=0
+    local gitmodules_submodules_count=0
+    local gitmodules_submodules_num=0
+
 	local _dirname
 	local _origin_url
 	local _sync_url
 	local _branch
 	local _tag
-
+	local _origin_branch
+    local _gitmodules_submodule
+    local _gitmodules_path
+    local _gitmodules_url
+    local _gitmodules_branch
 
 	local i=0;
 	local j=0;
 	local k=0;
+	local l=0;
+	local m=0;
+
 	print_msg "Starting pull and sync"
 	repos_count=$(jq -r '.repos | length'  $sync_json)
 	repos_num=$(($repos_count-1))
@@ -217,8 +229,115 @@ function pull_sync(){
 			done
 		fi
 
+		##sync gitmodules
+		gitmodules_count=$(jq -r ".repos|.[$i]|.gitmodules|length" $sync_json)
+        gitmodules_num=$(($gitmodules_count-1))
+        if [ $gitmodules_count -ge 1 ];then
+            for l in $(seq 0 $gitmodules_num)
+            do
+                _origin_branch=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.branch" $sync_json)
+                gitmodules_submodules_count=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.submodules|length" $sync_json)
+                gitmodules_submodules_num=$(($gitmodules_submodules_count-1))
+
+                if [ $gitmodules_submodules_count -ge 1 ];then
+                    for m in $(seq 0 $gitmodules_submodules_num)
+                    do
+                        _gitmodules_submodule=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.submodules|.[$m]|.submodule" $sync_json)
+                        _gitmodules_path=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.submodules|.[$m]|.path" $sync_json)
+                        _gitmodules_url=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.submodules|.[$m]|.url" $sync_json)
+                        _gitmodules_branch=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.submodules|.[$m]|.branch" $sync_json)
+
+                        _pull_sync_submodules $_dirname $_origin_url $_origin_branch $_gitmodules_branch $_gitmodules_submodule $_gitmodules_url $_gitmodules_path
+
+                    done
+
+                    ##same as pull sync branch
+                    _full_path=$sync_directory/$_dirname
+                    cd $_full_path
+
+                    if [ "$auto_commit_origin" == "1" ];then
+                        _git_commit $_full_path
+                    fi
+
+                    if [ "$auto_pull_origin" == "1" ];then
+                        git pull $remote_origin $_origin_branch
+                    fi
+
+                    if [ "$auto_push_origin" == "1" ];then
+                        git push $remote_origin $_origin_branch
+                    fi
+
+                fi
+
+
+            done
+        fi
+
 	done
 	print_msg "Pull and sync end."
+
+}
+
+function _pull_sync_submodules(){
+
+    local _dirname=$1
+    local _origin_url=$2
+    local _branch=$3
+    local _gitmodules_branch=$4
+    local _gitmodules_submodule=$5
+    local _gitmodules_url=$6
+    local _gitmodules_path=$7
+
+    local _full_path
+	local isin_git
+    local exist_submodule
+    local exist_branch
+
+    print_
+    [ -z $_dirname ] && { print_msg  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
+
+    [ -z $_gitmodules_branch ] && { echo  "submodule branch cant be empty in $_dirname at $_branch of $sync_json.  Aborting.";exit 1; }
+    [ -z $_gitmodules_submodule ] && { echo  "submodule name cant be empty in $_dirname at $_branch of $sync_json.  Aborting.";exit 1; }
+    [ -z $_gitmodules_url ] && { echo  "submodule url cant be empty in $_dirname at $_branch of $sync_json.  Aborting.";exit 1; }
+    [ -z $_gitmodules_path ] && { echo  "submodule path cant be empty in $_dirname at $_branch of $sync_json.  Aborting.";exit 1; }
+
+	_full_path=$sync_directory/$_dirname
+
+    [ ! -d "$_full_path" ] && mkdir -p $_full_path
+	cd $_full_path
+	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
+    if [ "$isin_git" == "true" ];then
+        _verify_remote $_full_path $remote_origin $_origin_url
+    else
+        [ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
+		cd $_full_path
+		git clone $_origin_url .
+		##local master existed
+    fi
+
+
+    cd $_full_path
+
+    if [ "$(git rev-parse --verify --quiet $_branch)" == "" ];then
+        ##check branch of remote origin exist
+        exist_branch=$(git ls-remote -h $_origin_url | grep -w "refs/heads/$_branch")
+        if [ "$exist_branch" != "" ];then
+            git fetch $remote_origin "$_branch":"$_branch"
+            git checkout $_branch
+        else
+            git checkout -b $_branch
+        fi
+	fi
+
+    exist_submodule=$(git config --file .gitmodules --get-regexp path | awk '{ print $2 }' | grep -w $_gitmodules_path)
+    if [ "$exist_submodule" != "" ];then
+        #update
+        echo "updating submodule:$_gitmodules_submodule for $_branch of $_origin_url"
+        git submodule update --init --remote $_gitmodules_path
+    else
+        #add submodule
+        git submodule add -b $_gitmodules_branch --name $_gitmodules_submodule  $_gitmodules_url  $_gitmodules_path
+    fi
 
 }
 
@@ -284,6 +403,7 @@ function _pull_sync_branch(){
 
 	local _full_path
 	local isin_git
+    local exist_branch
 
 	local care_sync=1
 
@@ -320,12 +440,15 @@ function _pull_sync_branch(){
 	##This will fetch the remote branch and create a new local branch (if not exists already) with name local_branch_name and track the remote one in it.
 
 	if [ "$(git rev-parse --verify --quiet $_branch)" == "" ];then
-		#git checkout -b $_branch
-		#git pull $remote_origin $_branch
 
-		#fix conflict between branches
-		git fetch $remote_origin "$_branch":"$_branch"
-		git checkout $_branch
+		##check branch of remote origin exist
+        exist_branch=$(git ls-remote -h $_origin_url | grep -w "refs/heads/$_branch")
+        if [ "$exist_branch" != "" ];then
+            git fetch $remote_origin "$_branch":"$_branch"
+            git checkout $_branch
+        else
+            git checkout -b $_branch
+        fi
 	fi
 
     if [ "$care_sync" == "1" ];then
@@ -417,9 +540,9 @@ function _verify_remote(){
 
 	cd $_fullpath
 
-	local_existed_remote_num=$(git remote | grep $_remote_name | wc -l | tr -d ' ')
+	local_existed_remote_num=$(git remote | grep -w $_remote_name | wc -l | tr -d ' ')
 	if [ "$local_existed_remote_num" == "1"  ];then
-		existed_remote=$(git remote | grep $_remote_name)
+		existed_remote=$(git remote | grep -w $_remote_name)
 		if [ "$existed_remote" == "$_remote_name" ];then
 			existed_url=$(git remote get-url $_remote_name)
 			[ "$existed_url" != "$_remote_url" ] && exit "$_fullpath existing another repo.  Aborting."
