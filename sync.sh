@@ -86,7 +86,12 @@ function _check_remote(){
 	do
 		print_ 30
 		echo "Checking repos: $g"
+        ##
+        ## if sync is "";then go next
+		[ "$_remote" == "$remote_sync" ] && ( [ ! -z "$g" ] || continue )
+
 		exist=$(git ls-remote -h  $g -q)
+		#if exist != "" then print not exist
 		[ -z $exist ] || { print_msg "I found $g not exist. Aborting."; exit 1;}
 		if [ "$_remote" == "$remote_sync" ];then
 			#check track remote branch
@@ -136,7 +141,7 @@ function check_directory(){
 		*)
 			sync_directory=$directory ;;
 	esac
-
+	
         if [[ "$sync_directory" =~ ^\.\/.*  ]];then
 		## ./abc
 		sync_directory=$PWD/$(echo $sync_directory|tr -d "./")
@@ -184,6 +189,9 @@ function pull_sync(){
 		_origin_url=$(jq -r ".repos|.[$i]|.origin" $sync_json)
 		_sync_url=$(jq -r ".repos|.[$i]|.sync" $sync_json)
 
+        ## fix params
+        [ x"$_sync_url" == x ] && _sync_url=NULL
+
 		##sync branch
 		branch_count=$(jq -r ".repos|.[$i]|.branch|length" $sync_json)
 		branch_num=$(($branch_count-1))
@@ -224,6 +232,12 @@ function _pull_sync_tag(){
 	local _full_path
 	local isin_git
 
+	local care_sync=1
+
+	if [ "$_sync_url" == "NULL" ];then
+	    care_sync=0
+	fi
+
 	print_
 
 	[ -z $_dirname ] && { print_msg  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
@@ -233,26 +247,32 @@ function _pull_sync_tag(){
 	cd $_full_path
 	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
 	if [ "$isin_git" == "true" ];then
-		_verify_remote $_full_path $remote_origin $_origin_url
-		_verify_remote $_full_path $remote_sync $_sync_url
+		_verify_remote $_full_path $remote_origin $_origin_url 
+		if [ "$care_sync" == "1" ];then
+		    _verify_remote $_full_path $remote_sync $_sync_url
+		fi
 	else
 		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
 		cd $_full_path
 		git clone $_origin_url .
-		git remote add $remote_sync $_sync_url
+		if [ "$care_sync" == "1" ];then
+		    git remote add $remote_sync $_sync_url
+		fi
 	fi
 
 	cd $_full_path
 	#not have tag
-	if [ "$(git rev-parse --verify --quiet $_tag)" == "" ];then
-		#must fetch from remote_sync
-		git fetch $remote_sync +refs/tags/$_tag:refs/tags/$_tag
+	if [ "$care_sync" == "1" ];then
+        if [ "$(git rev-parse --verify --quiet $_tag)" == "" ];then
+            #must fetch from remote_sync
+            git fetch $remote_sync +refs/tags/$_tag:refs/tags/$_tag
+        fi
 	fi
 	#git push to remote_origin
 	if [ "$(git rev-parse --verify --quiet $_tag)" != "" ];then
 		git push $remote_origin $_tag
 	fi
-
+	
 }
 
 function _pull_sync_branch(){
@@ -265,7 +285,14 @@ function _pull_sync_branch(){
 	local _full_path
 	local isin_git
 
+	local care_sync=1
+
+	if [ "$_sync_url" == "NULL" ];then
+	    care_sync=0
+	fi
+
 	print_
+
 
 	[ -z $_dirname ] && { print_msg  "dirname cant be empty in $sync_json.  Aborting.";exit 1; }
 	_full_path=$sync_directory/$_dirname
@@ -275,17 +302,21 @@ function _pull_sync_branch(){
 	isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
 	if [ "$isin_git" == "true" ];then
 		_verify_remote $_full_path $remote_origin $_origin_url
-		_verify_remote $_full_path $remote_sync $_sync_url
+		if [ "$care_sync" == "1" ];then
+		    _verify_remote $_full_path $remote_sync $_sync_url
+		fi
 	else
 		[ $(ls -A $_full_path) ] && { print_msg  "$_full_path is not empty.  Aborting";exit 1; }
 		cd $_full_path
 		git clone $_origin_url .
-		git remote add $remote_sync $_sync_url
+		if [ "$care_sync" == "1" ];then
+		    git remote add $remote_sync $_sync_url
+		fi
 	fi
 
 	cd $_full_path
 
-	##git fetch origin 'remote_branch':'local_branch_name'
+	##git fetch origin 'remote_branch':'local_branch_name'	
 	##This will fetch the remote branch and create a new local branch (if not exists already) with name local_branch_name and track the remote one in it.
 
 	if [ "$(git rev-parse --verify --quiet $_branch)" == "" ];then
@@ -297,33 +328,39 @@ function _pull_sync_branch(){
 		git checkout $_branch
 	fi
 
-	if [ "$(git rev-parse --verify --quiet sync-$_branch)" == ""  ];then
-		#git pull $remote_sync $_branch
-		#git branch --track sync-$_branch  $remote_sync/$_branch
-		
-		git checkout $_branch
-		git fetch $remote_sync "$_branch":"sync-$_branch"
-		git merge --no-edit sync-$_branch
-		
-		git push -u $remote_origin $_branch
-	fi
+    if [ "$care_sync" == "1" ];then
 
-	git checkout sync-$_branch
-	git pull $remote_sync $_branch
+        if [ "$(git rev-parse --verify --quiet sync-$_branch)" == ""  ];then
+            #git pull $remote_sync $_branch
+            #git branch --track sync-$_branch  $remote_sync/$_branch
+            git checkout $_branch
+            git fetch $remote_sync "$_branch":"sync-$_branch"
+            git merge --no-edit sync-$_branch
+            git push -u $remote_origin $_branch
+        fi
+
+        git checkout sync-$_branch
+        git pull $remote_sync $_branch
+
+    fi
 
 	git checkout $_branch
-
-	if [ "$auto_commit_origin" == "1" ];then
+	
+	if [ "$auto_commit_origin" == "1" ];then	
 		_git_commit $_full_path
 	fi
 
-	if [ "$auto_pull_origin" == "1" ];then
+	if [ "$auto_pull_origin" == "1" ];then	
 		git pull $remote_origin $_branch
 	fi
 
-	if [ "$auto_merge_sync" == "1" ];then
-		git merge --no-edit sync-$_branch
-	fi
+    if [ "$care_sync" == "1" ];then
+
+        if [ "$auto_merge_sync" == "1" ];then
+            git merge --no-edit sync-$_branch
+        fi
+
+    fi
 
 	if [ "$auto_push_origin" == "1" ];then
 		git push $remote_origin $_branch
@@ -406,7 +443,7 @@ function _verify_remote(){
 
 function guess_sync_json(){
 	if [[ "$sync_json" =~ ^\/.*  ]];then
-		echo
+		echo 
 	else
 		sync_json=$PWD/$sync_json
 	fi
