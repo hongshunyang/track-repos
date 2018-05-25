@@ -41,6 +41,14 @@
             }
           ]
         }
+      ],
+      "scripts":[
+        {
+          "eval": [
+            "bash  absolute/path/to/xxx.sh",
+            "--dist-branch '5.2'"
+            ]
+        }
       ]
     }
     
