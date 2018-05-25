@@ -22,7 +22,7 @@
 #6 push 本地分支develop-tag 到remote origin
 # git push origin develop-tag
 
-
+## ./sync.sh -f cas.json -r cas(dirname)
 
 sync_json=$PWD/sync.json
 sync_directory=$PWD
@@ -33,19 +33,30 @@ remote_nodes=($remote_origin $remote_sync)
 #dont change
 default_branch_when_branchIsEmpty=master
 
+repo_dir=all
 auto_commit_origin=1
 auto_pull_origin=1
 auto_merge_sync=1
 auto_push_origin=1
 
 function print_msg(){
-	printf %.s- {1..50}
+	printf %.s- {1..80}
 	echo
 	echo $1
+	echo
 }
 function print_(){
-	printf %.s- {1..50}
+    echo
+	printf %.s- {1..80}
 	echo
+}
+function print__(){
+    echo
+	printf %.s* {1..80}
+	echo
+	printf %.s* {1..80}
+	echo
+
 }
 
 function check_require(){
@@ -81,9 +92,24 @@ function _check_remote(){
 	local g
 	local branch_count=0
 	local tag_count=0
+    local repos_count=0
+    local repos_num=0
+
+    local _dirname
+
+    repos_count=$(jq -r '.repos | length'  $sync_json)
+	repos_num=$(($repos_count-1))
+
+	[ "$repos_num" == "-1" ] && { print_msg  "repos of $sync_json is empty. Aborting";exit 1; }
 
 	for g in $(jq -r ".repos | .[] | .$_remote" $sync_json)
 	do
+	    ####repo_dir
+        _dirname=$(jq -r ".repos|.[$i]|.dirname" $sync_json)
+        if [ "$repo_dir" != 'all' ] && [ "$repo_dir" != "$_dirname" ];then
+            i=$(( $i + 1 ))
+            continue
+        fi
 		print_ 30
 		echo "Checking repos: $g"
         ##
@@ -142,7 +168,7 @@ function check_directory(){
 			sync_directory=$directory ;;
 	esac
 	
-        if [[ "$sync_directory" =~ ^\.\/.*  ]];then
+    if [[ "$sync_directory" =~ ^\.\/.*  ]];then
 		## ./abc
 		sync_directory=$PWD/$(echo $sync_directory|tr -d "./")
 	elif [[ "$sync_directory" =~ ^\.\.\/.*  ]];then
@@ -166,6 +192,8 @@ function pull_sync(){
 	local branch_count=0
 	local tag_num=0
 	local tag_count=0
+	local cmd_count=0
+	local cmd_num=0
 
     local gitmodules_num=0
     local gitmodules_count=0
@@ -177,17 +205,20 @@ function pull_sync(){
 	local _sync_url
 	local _branch
 	local _tag
+	local _full_path
 	local _origin_branch
     local _gitmodules_submodule
     local _gitmodules_path
     local _gitmodules_url
     local _gitmodules_branch
+    local cmd
 
 	local i=0;
 	local j=0;
 	local k=0;
 	local l=0;
 	local m=0;
+	local s=0;
 
 	print_msg "Starting pull and sync"
 	repos_count=$(jq -r '.repos | length'  $sync_json)
@@ -201,6 +232,11 @@ function pull_sync(){
 		_origin_url=$(jq -r ".repos|.[$i]|.origin" $sync_json)
 		_sync_url=$(jq -r ".repos|.[$i]|.sync" $sync_json)
 
+        ####repo_dir
+        if [ "$repo_dir" != 'all' ] && [ "$repo_dir" != "$_dirname" ];then
+            ##i=$(( $i + 1 ))
+            continue
+        fi
         ## fix params
         [ x"$_sync_url" == x ] && _sync_url=NULL
 
@@ -246,39 +282,58 @@ function pull_sync(){
                         _gitmodules_path=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.submodules|.[$m]|.path" $sync_json)
                         _gitmodules_url=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.submodules|.[$m]|.url" $sync_json)
                         _gitmodules_branch=$(jq -r ".repos|.[$i]|.gitmodules|.[$l]|.submodules|.[$m]|.branch" $sync_json)
-
-                        _pull_sync_submodules $_dirname $_origin_url $_origin_branch $_gitmodules_branch $_gitmodules_submodule $_gitmodules_url $_gitmodules_path
-
+                        _pull_sync_submodule $_dirname $_origin_url $_origin_branch $_gitmodules_branch $_gitmodules_submodule $_gitmodules_url $_gitmodules_path
                     done
 
                     ##same as pull sync branch
                     _full_path=$sync_directory/$_dirname
                     cd $_full_path
-
                     if [ "$auto_commit_origin" == "1" ];then
                         _git_commit $_full_path
                     fi
-
                     if [ "$auto_pull_origin" == "1" ];then
                         git pull $remote_origin $_origin_branch
                     fi
-
                     if [ "$auto_push_origin" == "1" ];then
                         git push $remote_origin $_origin_branch
                     fi
 
                 fi
+            done
+        fi
 
+
+        ##execute script
+        scripts_count=$(jq -r ".repos|.[$i]|.scripts|length" $sync_json)
+        scripts_num=$(($scripts_count-1))
+        if [ $scripts_count -ge 1 ];then
+            for s in $(seq 0 $scripts_num)
+            do
+                _origin_branch=$(jq -r ".repos|.[$i]|.scripts|.[$s]|.branch" $sync_json)
+                cmd_count=$(jq -r ".repos|.[$i]|.scripts|.[$s]|.eval|length" $sync_json)
+                cmd_num=$(($cmd_count-1))
+                cmd=""
+                for c in $(seq 0 $cmd_num)
+                do
+                    cmd+=$(jq -r ".repos|.[$i]|.scripts|.[$s]|.eval|.[$c]" $sync_json)" "
+                done
+                ##make sure git branch is right
+                _full_path=$sync_directory/$_dirname
+
+                checkout_b_branch_if_not $_full_path $remote_origin  $_origin_url $_origin_branch $_origin_branch
+
+                eval $cmd
 
             done
         fi
 
+    print__
 	done
 	print_msg "Pull and sync end."
 
 }
 
-function _pull_sync_submodules(){
+function _pull_sync_submodule(){
 
     local _dirname=$1
     local _origin_url=$2
@@ -315,20 +370,9 @@ function _pull_sync_submodules(){
 		##local master existed
     fi
 
+    checkout_b_branch_if_not $_full_path $remote_origin  $_origin_url $_branch $_branch
 
     cd $_full_path
-
-    if [ "$(git rev-parse --verify --quiet $_branch)" == "" ];then
-        ##check branch of remote origin exist
-        exist_branch=$(git ls-remote -h $_origin_url | grep -w "refs/heads/$_branch")
-        if [ "$exist_branch" != "" ];then
-            git fetch $remote_origin "$_branch":"$_branch"
-            git checkout $_branch
-        else
-            git checkout -b $_branch
-        fi
-	fi
-
     exist_submodule=$(git config --file .gitmodules --get-regexp path | awk '{ print $2 }' | grep -w $_gitmodules_path)
     if [ "$exist_submodule" != "" ];then
         #update
@@ -340,6 +384,46 @@ function _pull_sync_submodules(){
     fi
 
 }
+
+function checkout_b_branch_if_not(){
+    local _git_dir=$1
+    local _remote_name=$2
+    local _remote_url=$3
+    local _remote_branch=$4
+    local _local_branch=$5
+
+    local isin_git
+    local exist_branch
+
+    if [ $# != 5 ];then
+        echo 'Please set 5 params!'
+        exit 1
+    fi
+
+    [ ! -d "$_git_dir" ] && mkdir -p $_git_dir
+    cd $_git_dir
+
+    ##make sure is in git
+    isin_git=$(git rev-parse --is-inside-work-tree 2>/dev/null )
+	if [ "$isin_git" != "true" ];then
+	    exist_branch=$(git ls-remote -h $_remote_url | grep -w "refs/heads/$_remote_branch")
+		git clone  $_remote_branch $_remote_url --branch $_remote_branch --single-branch .
+    fi
+
+    if [ "$(git rev-parse --verify --quiet $_local_branch)" == "" ];then
+        ##check branch of remote origin exist
+        exist_branch=$(git ls-remote -h $_remote_url | grep -w "refs/heads/$_remote_branch")
+        if [ "$exist_branch" != "" ];then
+            git fetch $_remote_name "$_remote_branch":"$_local_branch"
+            git checkout $_local_branch
+        else
+            git checkout -b $_local_branch
+        fi
+    fi
+
+
+}
+
 
 function _pull_sync_tag(){
 
@@ -447,7 +531,15 @@ function _pull_sync_branch(){
             git fetch $remote_origin "$_branch":"$_branch"
             git checkout $_branch
         else
-            git checkout -b $_branch
+            exist_branch=$(git ls-remote -h $_sync_url | grep -w "refs/heads/$_branch")
+            if [ "$exist_branch" != "" ];then
+                git fetch $remote_sync "$_branch":"$_branch"
+                git checkout $_branch
+            else
+                echo "not found $_branch in remote origin and sync!"
+                exit 1
+            fi
+
         fi
 	fi
 
@@ -596,7 +688,7 @@ function check_autoargs(){
 
 ######------------------------#########
 
-O=`getopt -o f:c:l:m:p: --long syn-json:,auto-commit-origin,auto-pull-origin,auto-merge-sync,auto-push-origin -- "$@"` || exit 1
+O=`getopt -o f:c:l:m:p:r: --long syn-json:,repo-dir:,auto-commit-origin:,auto-pull-origin:,auto-merge-sync:,auto-push-origin: -- "$@"` || exit 1
 eval set -- "$O"
 # extract options and their arguments into variables.
 while true ; do
@@ -605,6 +697,11 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) sync_json=$2 ; shift 2 ;;
+            esac ;;
+         -r|--repo-dir)
+            case "$2" in
+                "") shift 2 ;;
+                *) repo_dir=$2 ; shift 2 ;;
             esac ;;
         -c|--auto-commit-origin)
             case "$2" in
